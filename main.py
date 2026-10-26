@@ -1,78 +1,168 @@
 import os
-import pandas as pd
 
 from data_preprocessing import load_and_preprocess
-from clustering import evaluate_clusters, train_kmeans
+from kmeans_model import evaluate_clusters, train_kmeans
+from gmm_model import evaluate_gmm_components, train_gmm
 from visualization import (
     plot_elbow,
     plot_silhouette,
+    plot_gmm_information_criteria,
     plot_clusters,
     plot_cluster_sizes
 )
+from model_evaluation import compare_models
 
 
 def main():
-    # Xác định đường dẫn dự án
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(base_dir, "CC GENERAL.csv")
-    output_dir = os.path.join(base_dir, "outputs")
+    print("=" * 65)
+    print("DỰ ÁN PHÂN KHÚC KHÁCH HÀNG SỬ DỤNG THẺ TÍN DỤNG")
+    print("=" * 65)
 
-    os.makedirs(output_dir, exist_ok=True)
+    data_path = "CC GENERAL.csv"
+    results_dir = "results"
+    plots_dir = os.path.join(results_dir, "plots")
+
+    os.makedirs(results_dir, exist_ok=True)
 
     # 1. Đọc và tiền xử lý dữ liệu
-    print("\n=== 1. DATA PREPROCESSING ===")
+    print("\n[1] ĐỌC VÀ TIỀN XỬ LÝ DỮ LIỆU")
+
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(
+            f"Không tìm thấy {data_path}. "
+            "Hãy đặt file CSV cùng thư mục với main.py."
+        )
+
     df_clean, X_scaled = load_and_preprocess(data_path)
 
-    # 2. Đánh giá số cụm
-    print("\n=== 2. EVALUATING CLUSTERS ===")
-    results = evaluate_clusters(X_scaled, max_k=10)
+    print("Số khách hàng:", X_scaled.shape[0])
+    print("Số biến đầu vào:", X_scaled.shape[1])
 
-    # 3. Lưu chỉ số đánh giá
-    metrics_df = pd.DataFrame(results)
-    metrics_df.to_csv(
-        os.path.join(output_dir, "cluster_metrics.csv"),
-        index=False
+    # 2. Đánh giá số cụm K-Means
+    print("\n[2] ĐÁNH GIÁ SỐ CỤM K-MEANS")
+
+    kmeans_results = evaluate_clusters(X_scaled, max_k=10)
+
+    plot_elbow(kmeans_results, plots_dir)
+    plot_silhouette(kmeans_results, plots_dir)
+
+    import pandas as pd
+
+    pd.DataFrame(kmeans_results).to_csv(
+        os.path.join(results_dir, "kmeans_evaluation.csv"),
+        index=False,
+        encoding="utf-8-sig"
     )
 
-    # 4. Vẽ biểu đồ Elbow và Silhouette
-    plot_elbow(results, output_dir)
-    plot_silhouette(results, output_dir)
+    # 3. Đánh giá số thành phần GMM
+    print("\n[3] ĐÁNH GIÁ SỐ THÀNH PHẦN GMM")
 
-    # 5. Huấn luyện mô hình K-Means
-    print("\n=== 3. TRAINING K-MEANS ===")
-    model, labels = train_kmeans(X_scaled, n_clusters=6)
+    gmm_results = evaluate_gmm_components(
+        X_scaled,
+        max_components=10
+    )
 
-    # 6. Gắn nhãn cụm cho khách hàng
+    plot_gmm_information_criteria(gmm_results, plots_dir)
+
+    pd.DataFrame(gmm_results).to_csv(
+        os.path.join(results_dir, "gmm_evaluation.csv"),
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    # 4. Huấn luyện mô hình
+    # Dùng 4 cụm làm cấu hình ban đầu để so sánh hai mô hình.
+    # Có thể điều chỉnh sau khi xem kết quả đánh giá.
+    n_clusters = 4
+
+    print(f"\n[4] HUẤN LUYỆN K-MEANS VỚI K={n_clusters}")
+    kmeans_model, kmeans_labels = train_kmeans(
+        X_scaled,
+        n_clusters=n_clusters
+    )
+
+    print(f"\n[5] HUẤN LUYỆN GMM VỚI {n_clusters} THÀNH PHẦN")
+    gmm_model, gmm_labels = train_gmm(
+        X_scaled,
+        n_components=n_clusters
+    )
+
+    # 6. So sánh mô hình
+    print("\n[6] SO SÁNH CHẤT LƯỢNG PHÂN CỤM")
+
+    comparison = compare_models(
+        X_scaled,
+        kmeans_labels,
+        gmm_labels
+    )
+
+    comparison.to_csv(
+        os.path.join(results_dir, "model_comparison.csv"),
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    # 7. Lưu nhãn cụm cùng dữ liệu để phân tích đặc điểm khách hàng
+    print("\n[7] LƯU KẾT QUẢ PHÂN CỤM")
+
     df_result = df_clean.copy()
-    df_result["Cluster"] = labels
+    df_result["KMeans_Cluster"] = kmeans_labels
+    df_result["GMM_Cluster"] = gmm_labels
 
-    # 7. Lưu kết quả phân cụm
+    output_path = os.path.join(
+        results_dir,
+        "customer_segments.csv"
+    )
+
     df_result.to_csv(
-        os.path.join(output_dir, "clustered_customers.csv"),
-        index=False
+        output_path,
+        index=False,
+        encoding="utf-8-sig"
     )
 
-    # 8. Thống kê đặc điểm trung bình mỗi cụm
-    summary = df_result.groupby("Cluster").mean(numeric_only=True)
-    summary.to_csv(
-        os.path.join(output_dir, "cluster_summary.csv")
+    print("Số khách hàng theo K-Means:")
+    print(df_result["KMeans_Cluster"].value_counts().sort_index())
+
+    print("\nSố khách hàng theo GMM:")
+    print(df_result["GMM_Cluster"].value_counts().sort_index())
+
+    # 8. Trực quan hóa kết quả
+    print("\n[8] TẠO BIỂU ĐỒ")
+
+    kmeans_plot_dir = os.path.join(plots_dir, "kmeans")
+    gmm_plot_dir = os.path.join(plots_dir, "gmm")
+
+    plot_clusters(
+        X_scaled,
+        kmeans_labels,
+        kmeans_plot_dir,
+        "Customer Segmentation using K-Means (PCA)"
     )
 
-    # 9. Vẽ biểu đồ kết quả
-    plot_clusters(X_scaled, labels, output_dir)
-    plot_cluster_sizes(labels, output_dir)
+    plot_cluster_sizes(
+        kmeans_labels,
+        kmeans_plot_dir,
+        "K-Means: Number of Customers in Each Cluster"
+    )
 
-    # 10. In kết quả ra Terminal
-    print("\n=== 4. RESULTS ===")
-    print("Số khách hàng:", len(df_result))
-    print("Số cụm:", df_result["Cluster"].nunique())
-    print("\nSố khách hàng trong mỗi cụm:")
-    print(df_result["Cluster"].value_counts().sort_index())
-    print("\nĐặc điểm trung bình của từng cụm:")
-    print(summary)
+    plot_clusters(
+        X_scaled,
+        gmm_labels,
+        gmm_plot_dir,
+        "Customer Segmentation using GMM (PCA)"
+    )
 
-    print("\nĐã hoàn thành!")
-    print("Thư mục kết quả:", output_dir)
+    plot_cluster_sizes(
+        gmm_labels,
+        gmm_plot_dir,
+        "GMM: Number of Customers in Each Cluster"
+    )
+
+    print("\n" + "=" * 65)
+    print("HOÀN THÀNH DỰ ÁN PHÂN KHÚC KHÁCH HÀNG")
+    print(f"Kết quả CSV: {output_path}")
+    print(f"Biểu đồ: {plots_dir}")
+    print("=" * 65)
 
 
 if __name__ == "__main__":

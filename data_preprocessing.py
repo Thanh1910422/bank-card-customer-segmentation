@@ -1,20 +1,21 @@
-
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import RobustScaler
 
 
 def load_and_preprocess(file_path):
+    """Đọc, làm sạch và chuẩn hóa dữ liệu khách hàng."""
+
     # 1. Đọc dữ liệu
     df = pd.read_csv(file_path)
-
     print("Kích thước dữ liệu ban đầu:", df.shape)
 
-    # 2. Loại bỏ dòng trùng lặp
+    # 2. Loại bỏ các dòng trùng lặp
     df = df.drop_duplicates().copy()
 
-    # 3. Loại bỏ mã khách hàng
+    # 3. Loại bỏ mã khách hàng vì không dùng để phân cụm
     if "CUST_ID" in df.columns:
         df = df.drop(columns=["CUST_ID"])
 
@@ -38,7 +39,7 @@ def load_and_preprocess(file_path):
         index=df.index
     )
 
-    # 7. Biến đổi log các biến tiền và số giao dịch
+    # 7. Biến đổi log1p cho các biến có giá trị không âm
     log_columns = [
         "BALANCE",
         "PURCHASES",
@@ -53,22 +54,19 @@ def load_and_preprocess(file_path):
     ]
 
     df_model = df_clean.copy()
+    transformed_columns = []
 
     for col in log_columns:
-        if col in df_model.columns:
-            # Chỉ áp dụng log1p nếu toàn bộ giá trị không âm
-            if (df_model[col] >= 0).all():
-                df_model[col] = np.log1p(df_model[col])
+        if col in df_model.columns and (df_model[col] >= 0).all():
+            df_model[col] = np.log1p(df_model[col])
+            transformed_columns.append(col)
 
-    # 8. Chuẩn hóa bằng RobustScaler
+    # 8. Chuẩn hóa dữ liệu
     scaler = RobustScaler()
     X_scaled = scaler.fit_transform(df_model)
 
     print("Kích thước dữ liệu sau xử lý:", df_clean.shape)
-    print("Số biến được biến đổi log:",
-          sum(col in df_model.columns for col in log_columns))
+    print("Số biến được biến đổi log:", len(transformed_columns))
     print("Đã tiền xử lý và chuẩn hóa dữ liệu.")
 
-    # df_clean giữ giá trị gốc để diễn giải đặc điểm khách hàng
-    # X_scaled là dữ liệu dùng để huấn luyện mô hình
     return df_clean, X_scaled
